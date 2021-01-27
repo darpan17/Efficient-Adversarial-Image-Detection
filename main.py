@@ -4,8 +4,8 @@ Requirements
 Tensorflow 1.14.0
 Foolbox 2.1.0 
 Randomgen==1.15.1
-
-Code is For CIFAR10 dataset
+keras==2.1.2
+Code is For CIFAR10 dataset. For MNIST or any other dataset, just change the image dimension and number of image parameters.
 """
 
 
@@ -24,11 +24,24 @@ from sklearn.utils import shuffle
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 import time
+import foolbox
+from keras import backend
+from keras.models import load_model
+from keras.datasets import mnist
+from keras.utils import np_utils
 
 
+##this model if for CIFAR10 only, for other datasets, replace this code-------------
 from foolbox import zoo
 url = "https://github.com/bethgelab/cifar10_challenge.git"
 dNet = zoo.get_model(url)
+
+#for loading some other keras model
+backend.set_learning_phase(False)
+model = keras.models.load_model('/address/to/your/model.h5')
+fmodel = foolbox.models.KerasModel(model, bounds=(0,1))
+dNet = fmodel
+
 
 #Loading cifar-10 dataset-----------------------------------
 
@@ -72,7 +85,7 @@ test_label = np.load('location/to/file.npy')
 n_components = #
 n_sample = #
 #Training Phase----------------
-A, B = getAandB(dNet, np.reshape(train_img, (len(pretrain_imgs), 3072)), train_label, n_sample, n_components, A_i, B_i, lmbd1, lmbd2, alpha, beta, A_L, A_U, B_L, B_U )
+A, B = getAandB(dNet, np.reshape(train_img, (len(train_img), 3072)), train_label, n_sample, n_components, A_i, B_i, lmbd1, lmbd2, alpha, beta, A_L, A_U, B_L, B_U )
 print(A)
 print(B)
 
@@ -466,4 +479,94 @@ def chkBounds(qc, A, B):
     return -1
   else:
     return 0
+
+#for classification algorithms----------------------------
+#for CIFAR
+#to get threshold value, getAandB(..) was used after minor modifications and appropritate dataset with appropriate labels.
+
+
+def getQCln(prob_vec, initial_prob, net):
+  
+  #fill in the method of determining q
+  q = #Function to get q
+  return q
+
+
+def chkBoundsCln(qc, B):
+  
+  a = np.zeros(len(qc))
+
+  for i in range(len(qc)):
+    if(qc[i] > B):
+       a[i] = 1
+  return a
+
+
+def chkCleaned(bounds, prob_v, init_v):
+  
+  if(np.argmax(prob_v) != np.argmax(init_v)):
+    '''category changed'''
+    return np.argpartition(prob_v, -1)[-1:]
+    '''threshold crossed'''
+  if(np.amax(bounds) == 1):
+    return np.argpartition(bounds, -1)[-1:]
+
+  return [-1]
+
+
+def isClnOrNot(net, image, B, N_i, n_components):
+  
+  is_adv = [-1]
+  itr = 1
+  #adv_ratio = 1
+  rng = randomgen.RandomGenerator()
+  img_act = pca.inverse_transform(image)
+  
+  initial_vector = logit2probab(net.forward(np.reshape(img_act, (1, 32, 32, 3))))
+  
+  adv_ratio = np.ones(len(initial_vector))
+
+
+  #plt.imshow(np.reshape(img_act, (32, 32, 3))/255)
+  #plt.show()
+
+  while(np.amin(is_adv) == -1 and itr < N_i+1):
+    '''perturb'''
+    '''assuming dimension 3072'''
+    
+    perturbation = rng.standard_normal(size=(n_components,), dtype=trans_x.dtype)
+    new_x = np.copy(image)
+    new_x[(3072-n_components):] += 10*perturbation
+    
+    inv_x = pca.inverse_transform(new_x)
+    invx = np.reshape(inv_x,(1,32,32,3))
+
+    tmp_pred = net.forward(np.reshape(invx, (1,32,32,3)))
+    prob_vec = logit2probab(tmp_pred)
+
+    #plt.imshow(np.reshape(invx, (32, 32, 3))/255)
+    #plt.show()
+
+    adv_prob = getQCln(prob_vec, initial_vector, net)   
+
+    adv_ratio = np.divide(np.multiply(adv_ratio, adv_prob), [abs(1-x) for x in adv_prob])
+    
+    toPert = chkBoundsCln(adv_ratio, B)
+
+    is_adv = chkCleaned(toPert, prob_vec, initial_vector)
+    
+    if(np.amin(is_adv) != -1):
+      	#just a numerical hack
+	adv_ratio[is_adv[-1]] = adv_ratio[is_adv[-1]] + 2*B
+    
+    itr = itr+1
+
+  ##just another numnerical hack, for an easier code
+  ##after analyzing the list returned we can easily determine the predicted correct category
+  return [x-B for x in adv_ratio], itr
+
+
+
+
+
 
